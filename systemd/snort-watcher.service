@@ -1,0 +1,18 @@
+[Unit]
+Description=Snort Alert Watcher — Email + Telegram + UFW Auto-block
+After=snort.service network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/snort-alert
+EnvironmentFile=/opt/snort-alert/.env
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/opt/snort-alert/venv/bin/python3 /opt/snort-alert/watcher.py
+Restart=always
+RestartSec=3
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

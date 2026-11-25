@@ -1,0 +1,81 @@
+# /etc/snort/rules/local.rules — Full ruleset
+
+# SSH
+alert tcp $EXTERNAL_NET any -> $HOME_NET 22 \
+    (msg:"[SSH] Brute Force Attack"; flow:to_server,established; content:"SSH"; detection_filter:track by_src, count 5, seconds 60; priority:1; sid:1000001; rev:2;)
+alert tcp $EXTERNAL_NET any -> $HOME_NET 22 \
+    (msg:"[SSH] Root Login Attempt"; flow:to_server,established; content:"root"; nocase; priority:1; sid:1000002; rev:1;)
+alert tcp $EXTERNAL_NET any -> $HOME_NET 22 \
+    (msg:"[SSH] Protocol Version Scan"; flow:to_server,established; content:"SSH-1."; priority:2; sid:1000003; rev:1;)
+alert tcp $EXTERNAL_NET any -> $HOME_NET 22 \
+    (msg:"[SSH] Excessive New Connections"; flags:S; detection_filter:track by_src, count 20, seconds 60; priority:2; sid:1000004; rev:1;)
+
+# FTP
+alert tcp $EXTERNAL_NET any -> $HOME_NET 21 \
+    (msg:"[FTP] Brute Force Attack"; flow:to_server,established; content:"USER"; detection_filter:track by_src, count 6, seconds 30; priority:1; sid:1000010; rev:1;)
+alert tcp $EXTERNAL_NET any -> $HOME_NET 21 \
+    (msg:"[FTP] Root Login Attempt"; flow:to_server,established; content:"USER root"; nocase; priority:1; sid:1000011; rev:1;)
+alert tcp $EXTERNAL_NET any -> $HOME_NET 21 \
+    (msg:"[FTP] Anonymous Login Attempt"; flow:to_server,established; content:"USER anonymous"; nocase; priority:2; sid:1000012; rev:1;)
+
+# Web + CyberPanel
+alert tcp $EXTERNAL_NET any -> $HOME_NET $HTTP_PORTS \
+    (msg:"[WEB] SQL Injection Attempt"; flow:to_server,established; pcre:"/(\\bunion\\b.{0,20}\\bselect\\b|\\bselect\\b.{0,20}\\bfrom\\b|\\bdrop\\b.{0,10}\\btable\\b)/i"; priority:1; sid:1000020; rev:2;)
+alert tcp $EXTERNAL_NET any -> $HOME_NET $HTTP_PORTS \
+    (msg:"[WEB] XSS Attempt"; flow:to_server,established; pcre:"/<\s*script[\s>]/i"; priority:1; sid:1000021; rev:2;)
+alert tcp $EXTERNAL_NET any -> $HOME_NET $HTTP_PORTS \
+    (msg:"[WEB] Directory Traversal / LFI"; flow:to_server,established; pcre:"/(\\.\\.[\\\\/]){2,}/"; priority:1; sid:1000022; rev:3;)
+alert tcp $EXTERNAL_NET any -> $HOME_NET $HTTP_PORTS \
+    (msg:"[WEB] Remote File Inclusion"; flow:to_server,established; pcre:"/=(https?|ftp):\\/\\//i"; priority:1; sid:1000023; rev:2;)
+alert tcp $EXTERNAL_NET any -> $HOME_NET $HTTP_PORTS \
+    (msg:"[WEB] Command Injection Attempt"; flow:to_server,established; pcre:"/(\\x3b|\\x7c)(ls|cat|wget|curl|bash|sh|python|perl|nc|id|whoami)/i"; priority:1; sid:1000024; rev:4;)
+alert tcp $EXTERNAL_NET any -> $HOME_NET $HTTP_PORTS \
+    (msg:"[WEB] Shellshock Exploit Attempt"; flow:to_server,established; content:"() {"; priority:1; sid:1000025; rev:1;)
+alert tcp $EXTERNAL_NET any -> $HOME_NET $HTTP_PORTS \
+    (msg:"[WEB] HTTP Flood DoS"; flow:to_server,established; detection_filter:track by_src, count 300, seconds 10; priority:1; sid:1000026; rev:1;)
+alert tcp $EXTERNAL_NET any -> $HOME_NET $HTTP_PORTS \
+    (msg:"[WEB] Automated Scanner (sqlmap/nikto/nmap)"; flow:to_server,established; pcre:"/User-Agent:\\s*(sqlmap|nikto|nmap|masscan|zgrab|dirbuster|gobuster)/i"; priority:2; sid:1000027; rev:1;)
+alert tcp $EXTERNAL_NET any -> $HOME_NET 8090 \
+    (msg:"[CYBERPANEL] Admin Login Brute Force"; flow:to_server,established; content:"POST"; http_method; detection_filter:track by_src, count 5, seconds 30; priority:1; sid:1000028; rev:1;)
+
+# TLS metadata (encrypted traffic visibility)
+alert tcp $EXTERNAL_NET any -> $HOME_NET 443 \
+    (msg:"[TLS] Deprecated SSLv3 Handshake"; flow:to_server,established; ssl_state:client_hello; ssl_version:sslv3; priority:2; sid:1000029; rev:1;)
+alert tcp $EXTERNAL_NET any -> $HOME_NET 443 \
+    (msg:"[TLS] Legacy TLS1.0 Handshake"; flow:to_server,established; ssl_state:client_hello; ssl_version:tls1.0; priority:3; sid:1000034; rev:1;)
+alert tcp $EXTERNAL_NET any -> $HOME_NET 443 \
+    (msg:"[TLS] Legacy TLS1.1 Handshake"; flow:to_server,established; ssl_state:client_hello; ssl_version:tls1.1; priority:3; sid:1000035; rev:1;)
+
+# Mail
+alert tcp $EXTERNAL_NET any -> $HOME_NET 25 \
+    (msg:"[SMTP] Auth Brute Force"; flow:to_server,established; content:"AUTH"; detection_filter:track by_src, count 5, seconds 30; priority:2; sid:1000030; rev:1;)
+alert tcp $EXTERNAL_NET any -> $HOME_NET 25 \
+    (msg:"[SMTP] VRFY User Enumeration"; flow:to_server,established; content:"VRFY"; detection_filter:track by_src, count 5, seconds 10; priority:2; sid:1000031; rev:1;)
+alert tcp $EXTERNAL_NET any -> $HOME_NET [143,993] \
+    (msg:"[IMAP] Brute Force Attack"; flow:to_server,established; content:"LOGIN"; detection_filter:track by_src, count 5, seconds 30; priority:2; sid:1000032; rev:1;)
+alert tcp $EXTERNAL_NET any -> $HOME_NET [110,995] \
+    (msg:"[POP3] Brute Force Attack"; flow:to_server,established; content:"USER"; detection_filter:track by_src, count 5, seconds 30; priority:2; sid:1000033; rev:1;)
+
+# DB
+alert tcp $EXTERNAL_NET any -> $HOME_NET 3306 \
+    (msg:"[MYSQL] External Access Attempt"; flow:to_server; priority:1; sid:1000040; rev:1;)
+
+# Scans
+alert tcp $EXTERNAL_NET any -> $HOME_NET any \
+    (msg:"[SCAN] TCP SYN Port Scan"; flags:S; detection_filter:track by_src, count 5, seconds 30; priority:2; sid:1000050; rev:2;)
+alert udp $EXTERNAL_NET any -> $HOME_NET any \
+    (msg:"[SCAN] UDP Port Scan"; detection_filter:track by_src, count 20, seconds 5; priority:2; sid:1000051; rev:1;)
+alert icmp $EXTERNAL_NET any -> $HOME_NET any \
+    (msg:"[SCAN] ICMP Ping Sweep"; itype:8; detection_filter:track by_src, count 10, seconds 5; priority:3; sid:1000052; rev:1;)
+
+# Outbound
+alert tcp $HOME_NET any -> $EXTERNAL_NET [6666:6669,7000] \
+    (msg:"[OUTBOUND] IRC C2 - Possible Botnet"; flow:to_server,established; priority:1; sid:1000060; rev:1;)
+alert tcp $HOME_NET any -> $EXTERNAL_NET [3333,4444,5555,7777,9999,14444,14433] \
+    (msg:"[OUTBOUND] Crypto Miner Pool Connection"; flow:to_server,established; priority:1; sid:1000061; rev:1;)
+alert udp $HOME_NET any -> $EXTERNAL_NET 53 \
+    (msg:"[OUTBOUND] Possible DNS Exfiltration (large query)"; dsize:>200; priority:2; sid:1000062; rev:1;)
+alert tcp $HOME_NET any -> $EXTERNAL_NET any \
+    (msg:"[OUTBOUND] Reverse Shell Indicator"; flow:to_server,established; pcre:"/\\/(bin|usr\\/bin)\\/(bash|sh|zsh|nc|ncat|python)/"; priority:1; sid:1000063; rev:2;)
+alert tcp $DOCKER_NET any -> $EXTERNAL_NET any \
+    (msg:"[DOCKER] Container Direct External Connection"; flow:to_server,established; detection_filter:track by_src, count 20, seconds 5; priority:2; sid:1000064; rev:1;)

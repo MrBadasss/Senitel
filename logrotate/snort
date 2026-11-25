@@ -1,0 +1,20 @@
+/var/log/snort/alert.log {
+    daily
+    rotate 30
+    compress
+    delaycompress
+    missingok
+    notifempty
+    postrotate
+        systemctl kill -s HUP snort 2>/dev/null || true
+    endscript
+}
+
+/var/log/modsec_audit.log {
+    daily
+    rotate 14
+    compress
+    delaycompress
+    missingok
+    notifempty
+}
