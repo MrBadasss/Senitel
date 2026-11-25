@@ -1,102 +1,71 @@
-# Senitel — Snort IDS Project for VPS (CyberPanel/OpenLiteSpeed)
+# Senitel
 
-This repository implements the full project from your shared chat:
+Senitel is an intrusion detection and response setup for an Ubuntu VPS running CyberPanel with OpenLiteSpeed. It combines Snort network detection, ModSecurity web application firewalling, and a Python alert watcher that notifies you and blocks attackers automatically.
 
-- Snort-based IDS for full VPS traffic (`-i any`, including Docker bridges)
-- Custom rules for SSH/FTP/Web/Mail/DB/port scan/outbound indicators
-- Python alert watcher for real-time Email + Telegram alerts
-- Optional UFW auto-block for critical alerts
-- ModSecurity + OWASP CRS setup for HTTPS-layer protection on OpenLiteSpeed
-- systemd and logrotate configs for production operation
+## What it does
 
-## Encrypted Traffic Coverage (Important)
+- **Snort IDS** watches all VPS traffic, including Docker bridge networks, with 35 custom rules covering:
+  - SSH, FTP, SMTP, IMAP and POP3 brute force and root login attempts
+  - Web attacks: SQL injection, XSS, directory traversal, remote file inclusion, command injection and Shellshock
+  - HTTP flood, automated scanners (sqlmap, nikto, nmap, masscan and others) and CyberPanel admin brute force
+  - Legacy TLS handshakes (SSLv3, TLS 1.0, TLS 1.1)
+  - Port scans (TCP SYN, UDP, ICMP ping sweep) and external MySQL access
+  - Outbound indicators: IRC command-and-control ports, crypto miner pools, large DNS queries and reverse shells
+  - Docker container egress to the internet
+- **Alert watcher** (`watcher/watcher.py`) tails the Snort alert log and the ModSecurity audit log, then:
+  - Sends an email and a Telegram alert for each new alert, with priority, source, destination and recommended actions
+  - Auto-blocks the source IP with UFW for critical (priority 1) alerts, and sends a Telegram notice with the unblock command
+  - Throttles repeated alerts (120 seconds per message) and suppresses bursts (more than 10 alerts in 60 seconds from one IP)
+  - Never blocks the server's own IP, loopback, or IPs on the exclusion list, and keeps working if email or Telegram fails
+- **ModSecurity with OWASP CRS** inspects decrypted HTTPS traffic in OpenLiteSpeed, which Snort cannot see inside encrypted TLS.
 
-- HTTPS payload inspection is done by ModSecurity in OpenLiteSpeed (decrypted at web server).
-- Snort still monitors encrypted TLS/SSH at network layer (handshake/protocol/behavior anomalies, brute-force patterns, scans, DoS, outbound indicators).
-- Snort cannot decrypt arbitrary SSH or end-to-end TLS payloads directly.
-- The watcher now monitors both Snort alerts and ModSecurity audit alerts for immediate Email/Telegram notifications.
-- If Tor is intentional, keep it running and add trusted IPs to `AUTO_BLOCK_EXCLUDE_IPS` in `.env` to prevent unwanted auto-blocking.
+## Project structure
 
-## Project Structure
+```
+snort/snort.conf          Snort configuration template
+snort/rules/local.rules   Custom detection rules (SIDs 1000001-1000064)
+watcher/watcher.py        Alert processor: email, Telegram, UFW auto-block
+watcher/requirements.txt  Python dependency (requests)
+systemd/snort.service     Snort service unit
+systemd/snort-watcher.service  Watcher service unit
+modsecurity/modsec.conf   ModSecurity configuration for OpenLiteSpeed
+logrotate/snort           Rotation rules for Snort and ModSecurity logs
+scripts/*.sh              Install, deploy, verify and helper scripts
+.env.example              Environment template for watcher settings
+```
 
-- `snort/snort.conf` — Snort main configuration template
-- `snort/rules/local.rules` — Custom detection rules
-- `watcher/watcher.py` — Alert processor (email/telegram/autoblock)
-- `watcher/requirements.txt` — Python dependency (`requests`)
-- `systemd/snort.service` — Snort service unit
-- `systemd/snort-watcher.service` — Watcher service unit
-- `modsecurity/modsec.conf` — ModSecurity main config for OLS
-- `logrotate/snort` — Rotation rules for Snort + ModSecurity logs
-- `scripts/*.sh` — Installation/deployment/verification scripts
-- `.env.example` — Environment template for watcher secrets
+## Configure before deploying
 
-## Important Customization Before Deploy
-
-Update these values first:
-
-1. `snort/snort.conf`
-   - `HOME_NET` (your VPS IP/CIDR)
-   - `DOCKER_NET` ranges if your Docker networks differ
-2. `.env.example` (later copied to `/opt/snort-alert/.env`)
+1. `snort/snort.conf` — set `HOME_NET` to your VPS IP or CIDR, and `DOCKER_NET` to your Docker network ranges.
+2. Copy `.env.example` to `/opt/snort-alert/.env` and fill in:
    - SMTP credentials (optional; leave blank to disable email)
-   - Telegram bot token/chat IDs (`TELEGRAM_CHAT_IDS` supports comma-separated list)
+   - Telegram bot token and chat IDs (`TELEGRAM_CHAT_IDS` accepts a comma-separated list)
    - `VPS_IP`
    - `WATCH_MODSEC=true` and `MODSEC_AUDIT_LOG=/var/log/modsec_audit.log`
-   - optional `AUTO_BLOCK_EXCLUDE_IPS` (comma-separated)
-3. Any ports/rules you don’t use (mail/ftp/db/admin ports)
+   - `AUTO_BLOCK_EXCLUDE_IPS` for trusted IPs that must never be blocked
 
-## Deployment Steps on VPS (Ubuntu)
+## Deploy on Ubuntu
 
-Run in this order from project root:
-
-1. Install Snort + UFW and baseline firewall rules
+Run in order from the project root:
 
 ```bash
-sudo bash scripts/install_snort_ufw.sh
+sudo bash scripts/install_snort_ufw.sh   # Install Snort + UFW, baseline firewall rules
+sudo bash scripts/deploy_configs.sh      # Deploy Snort, systemd and logrotate configs
+sudo bash scripts/setup_watcher.sh       # Watcher runtime, then edit /opt/snort-alert/.env
+sudo bash scripts/setup_modsecurity.sh   # ModSecurity CRS for OpenLiteSpeed
+sudo bash scripts/enable_services.sh     # Validate and start services
+sudo bash scripts/verify_pipeline.sh     # Verify the alert pipeline
 ```
 
-2. Deploy Snort/systemd/logrotate configs
+Then in CyberPanel, enable ModSecurity per website under Security, and restart OpenLiteSpeed.
 
-```bash
-sudo bash scripts/deploy_configs.sh
-```
-
-3. Set up watcher runtime (venv + script + env)
-
-```bash
-sudo bash scripts/setup_watcher.sh
-sudo nano /opt/snort-alert/.env
-```
-
-4. Set up ModSecurity CRS for OpenLiteSpeed (HTTPS inspection path)
-
-```bash
-sudo bash scripts/setup_modsecurity.sh
-```
-
-Then in CyberPanel:
-- Security → ModSecurity → enable per website
-- restart OpenLiteSpeed
-
-5. Validate and start services
-
-```bash
-sudo bash scripts/enable_services.sh
-```
-
-6. Verify alert pipeline
-
-```bash
-sudo bash scripts/verify_pipeline.sh
-```
-
-## Telegram Chat ID Helper
+Get a Telegram chat ID with:
 
 ```bash
 bash scripts/get_telegram_chat_id.sh <BOT_TOKEN>
 ```
 
-## Live Operations
+## Live operations
 
 ```bash
 sudo tail -f /var/log/snort/alert.log
@@ -104,8 +73,7 @@ sudo journalctl -u snort-watcher -f
 sudo ufw status verbose
 ```
 
-## Notes
+## Limits
 
-- This design follows your CyberPanel/OpenLiteSpeed setup from the shared plan (not nginx mirroring).
-- Snort covers network-level/transport detections; ModSecurity handles decrypted HTTPS payload attacks.
-- Watcher is intentionally fail-open: if email/telegram fails, IDS continues running.
+- Snort sees encrypted traffic only at the network layer (handshakes, protocols, brute-force patterns, scans, denial of service, outbound indicators). It cannot decrypt SSH or TLS payloads. HTTPS payload inspection is done by ModSecurity after OpenLiteSpeed decrypts it.
+- If Tor is intentional on the server, add its IPs to `AUTO_BLOCK_EXCLUDE_IPS` to prevent unwanted auto-blocking.
